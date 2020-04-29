@@ -95,8 +95,7 @@ class Matrix4 {
         return new Matrix4();
     }
 
-    perspective(fov, aspectRatio, near, far, concat = true) {
-        if (!concat) this.identity();
+    perspective(fov, aspectRatio, near, far) {
         mat4.perspective(this.elements, fov, aspectRatio, near, far);
         return this;
     }
@@ -491,11 +490,11 @@ class Colour {
         this.a = vec.w;
     }
 
-    toVector3() {
+    get rgb() {
         return new Vector3(this.r, this.g, this.b);
     }
 
-    toVector4() {
+    get rgba() {
         return new Vector4(this.r, this.g, this.b, this.a);
     }
 
@@ -505,5 +504,53 @@ class Colour {
 
     set elements(value) {
         [this.r, this.g, this.b, this.a] = value.slice(0, 4);
+    }
+
+    static fromBytes(r, g, b, a = 255) {
+        return new Colour(r / 255.0, g / 255.0, b / 255.0, a / 255.0);
+    }
+
+    static get black() {
+        return new Colour(0.0, 0.0, 0.0, 1.0);
+    }
+
+    static get white() {
+        return new Colour(1.0, 1.0, 1.0, 1.0);
+    }
+
+    static get grey() {
+        return new Colour(0.5, 0.5, 0.5, 1.0);
+    }
+
+    static get darkGrey() {
+        return new Colour(0.25, 0.25, 0.25, 1.0);
+    }
+
+    static get lightGrey() {
+        return new Colour(0.75, 0.75, 0.75, 1.0);
+    }
+
+    static get red() {
+        return new Colour(1.0, 0.0, 0.0, 1.0);
+    }
+
+    static get green() {
+        return new Colour(0.0, 1.0, 0.0, 1.0);
+    }
+
+    static get blue() {
+        return new Colour(0.0, 0.0, 1.0, 1.0);
+    }
+
+    static get yellow() {
+        return new Colour(1.0, 1.0, 0.0, 1.0);
+    }
+
+    static get cyan() {
+        return new Colour(0.0, 1.0, 1.0, 1.0);
+    }
+
+    static get magenta() {
+        return new Colour(1.0, 0.0, 1.0, 1.0);
     }
 }

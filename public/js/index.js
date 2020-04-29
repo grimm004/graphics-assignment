@@ -22,59 +22,96 @@ function fetchImage(url) {
     });
 }
 
-async function fetchShaders(gl, name) {
-    const vertexShaderSource = await fetchText(`assets/shaders/${name}/vertex.glsl`);
-    const fragmentShaderSource = await fetchText(`assets/shaders/${name}/fragment.glsl`);
-    return new Shader(gl, vertexShaderSource, fragmentShaderSource);
+async function fetchTexture(gl, filename) {
+    return new Texture(gl, await fetchImage(`assets/images/${filename}`));
 }
 
-async function fetchModel(gl, name, shader) {
-    return Model.fromJson(gl, shader, await fetchText(`assets/models/${name}/model.json`),
-        new Texture(gl, await fetchImage(`assets/models/${name}/texture.png`)));
+async function fetchShaderSource(name) {
+    return [await fetchText(`assets/shaders/${name}.vertex.glsl`), await fetchText(`assets/shaders/${name}.fragment.glsl`)];
+}
+
+async function fetchMesh(gl, name, hasTexture, textureName) {
+    let texture = null;
+    if (hasTexture)
+        texture = await fetchTexture(gl, textureName ?? (name + ".png"));
+    return parseObj(gl, await fetchText(`assets/meshes/${name}.obj`), texture);
 }
 
 class CGCoursework extends Application {
     constructor(gl) {
         super(gl);
 
-        this.renderer = new Renderer(this.gl);
+        this.renderer = new Renderer(this.gl, Colour.white);
+
+        this.mouseSensitivity = 20;
 
         this.camera = new Camera(90.0, gl.canvas.clientWidth / gl.canvas.clientHeight);
         this.camera.position = new Vector3(2.923570394515991, 0.5615888833999634, 4.216072082519531);
         this.camera.orientation = new Vector3(-44.851505279541016, 0.6907241344451904, 0.0);
     }
 
+    async loadShaders() {
+        let vertSource, fragSource, shader;
+
+        [vertSource, fragSource] = await fetchShaderSource("col");
+        shader = new Shader(this.gl, vertSource, fragSource);
+        this.addShader("col", shader);
+        const layout1 = new VertexBufferLayout(this.gl)
+            .addAttribute(shader.getAttrib("aVertexPosition"), 3)
+            .addAttribute(shader.getAttrib("aVertexColour"), 3);
+        shader.addLayout("default", layout1);
+
+        [vertSource, fragSource] = await fetchShaderSource("colLit");
+        shader = new Shader(this.gl, vertSource, fragSource);
+        this.addShader("colLit", shader);
+        const layout2 = new VertexBufferLayout(this.gl)
+            .addAttribute("aVertexPosition", 3)
+            .addAttribute("aVertexNormal", 3)
+            .addAttribute("aVertexColour", 3);
+        shader.addLayout("default", layout2);
+
+        [vertSource, fragSource] = await fetchShaderSource("texLit");
+        shader = new Shader(this.gl, vertSource, fragSource);
+        this.addShader("texLit", shader);
+        const layout3 = new VertexBufferLayout(this.gl)
+            .addAttribute(shader.getAttrib("aVertexPosition"), 3)
+            .addAttribute(shader.getAttrib("aVertexNormal"), 3)
+            .addAttribute(shader.getAttrib("aTextureCoords"), 2);
+        shader.addLayout("default", layout3);
+    }
+
     async initialise() {
-        this.shader = await fetchShaders(this.gl, "lighting");
-        this.simpleShader = await fetchShaders(this.gl, "simple");
-        const boxImage = await fetchImage("/textures/crate.png");
+        await this.loadShaders();
 
-        const texture = new Texture(this.gl, boxImage);
-        const texCubeModel = new TexturedCube(this.gl, this.shader, texture);
-        const colCubeModel = new ColouredCube(this.gl, this.simpleShader, new Vector3(1.0));
-        const planeModel = new Plane(this.gl, this.shader, texture);
-        const suzanneModel = await fetchModel(this.gl, "suzanne", this.shader);
+        const texture = await fetchTexture(this.gl, "wood.jpg");
 
-        this.cube = new StdObject(texCubeModel, new Vector3(-5, 0, 0));
-        this.cube2 = new StdObject(texCubeModel);
-        this.lightCube = new SimpleObject(colCubeModel, new Vector3(0.0, 4.0, 4.0), Vector3.zeros, new Vector3(0.05));
-        this.plane = new StdObject(planeModel, Vector3.zeros, Vector3.zeros, new Vector3(10.0));
-        this.suzanne = new StdObject(suzanneModel, new Vector3(2.0, 0.0, 0.0));
+        const texCubeMesh = new TexCubeMesh(this.gl, texture);
+        const texPlaneMesh = new TexPlaneMesh(this.gl, "texLit", texture);
+        const colCubeMesh = new ColCubeMesh(this.gl, new Vector3(1.0));
+        const suzanneMesh = await fetchMesh(this.gl, "suzanne", true);
+        const catMesh = await fetchMesh(this.gl, "cat", true);
 
-        const catModel = await fetchModel(this.gl, "cat", this.shader);
-        this.cat = new StdObject(catModel, new Vector3(0.0, 0.0, 0.0), new Vector3(0.0, -90.0, 0.0), new Vector3(0.1));
+        const cube = new StdObject(texCubeMesh, new Vector3(-5, 1.0, 0.0));
+        const cube2 = new StdObject(texCubeMesh, new Vector3(-5, 1.0, -1.0));
+        this.lightCube = new SimpleObject(colCubeMesh, new Vector3(0.0, 4.0, 4.0), Vector3.zeros, new Vector3(0.05));
+        this.suzanne = new StdObject(suzanneMesh, new Vector3(2.0, 1.0, 0.0));
+        const cat = new StdObject(catMesh, new Vector3(-4.0, 0.0, 4.0), new Vector3(90.0, 0.0, 0.0), new Vector3(0.1));
 
-        this.worldObjects = [this.suzanne, this.cube2, this.cube, this.lightCube, this.plane, this.cat];
+        this.sceneGraph = new StdObject(texPlaneMesh, Vector3.zeros, Vector3.zeros, new Vector3(10.0), [cube, cube2, this.suzanne, cat]);
 
-        this.lightColour = new Colour(1.0);
+        this.lightColour = Colour.white;
 
         await super.initialise();
     }
 
+    resize() {
+        this.camera.aspectRatio = this.gl.canvas.clientWidth / this.gl.canvas.clientHeight;
+    }
+
     keyDown(key) {
         if (key === "r") {
-            this.camera.targetPosition = new Vector3(2.923570394515991, 0.5615888833999634, 4.216072082519531);
-            this.camera.targetOrientation = new Vector3(-44.851505279541016, 0.6907241344451904, 0.0);
+            this.camera.targetPosition = new Vector3(2.9, 0.5, 4.2);
+            this.camera.targetOrientation = new Vector3(-44.85, 0.79, 0.00);
         } else if (key === "c")
             console.log(`[${this.camera.position.elements.join(", ")}], [${this.camera.orientation.elements.join(", ")}]`);
 
@@ -82,12 +119,12 @@ class CGCoursework extends Application {
     }
 
     update(deltaTime) {
-        this.cube2.position = new Vector3(
+        this.lightCube.position = new Vector3(
             Number(document.getElementById("xPosSlider").value) / 10.0,
             Number(document.getElementById("yPosSlider").value) / 10.0,
             Number(document.getElementById("zPosSlider").value) / 10.0
         );
-        this.cube2.orientation = new Vector3(
+        this.lightCube.orientation = new Vector3(
             Number(document.getElementById("yawRotSlider").value),
             Number(document.getElementById("pitchRotSlider").value),
             Number(document.getElementById("rollRotSlider").value)
@@ -110,26 +147,26 @@ class CGCoursework extends Application {
             uProjectionMatrix: this.camera.projectionMatrix
         }
 
-        const stdUniforms = {
+        const lit = {
             uLightPosition: this.lightCube.position,
-            uLightColour: this.lightColour.toVector3(),
+            uLightColour: this.lightColour.rgb,
             uEyePosition: this.camera.position
         }
 
-        const simpleUniforms = {
+        const unlit = {
             uColour: this.lightColour
         }
 
-        for (const object of this.worldObjects)
-            object.update(deltaTime, {...commonUniforms, ...(object instanceof StdObject ? stdUniforms : simpleUniforms)});
+        this.lightCube.update(deltaTime, {...commonUniforms, ...unlit});
+        this.sceneGraph.update(deltaTime, {...commonUniforms, ...lit});
 
         super.update(deltaTime);
     }
 
     draw() {
         this.renderer.clear();
-        for (const object of this.worldObjects)
-            this.renderer.draw(object);
+        this.lightCube.draw(this.renderer);
+        this.sceneGraph.draw(this.renderer);
         super.draw();
     }
 }
@@ -137,9 +174,22 @@ class CGCoursework extends Application {
 class Program {
     static main() {
         const canvas = document.querySelector("#glCanvas");
+
         const gl = canvas.getContext("webgl2");
         if (gl) {
             const app = new CGCoursework(gl);
+
+            const resize = () => {
+                canvas.width  = window.innerWidth;
+                canvas.height = window.innerHeight;
+
+                app.resize();
+
+                gl.viewport(0, 0, canvas.width, canvas.height);
+            };
+            resize();
+
+            window.addEventListener("resize", resize, false);
 
             const body = document.querySelector("body");
             body.addEventListener("keydown", e => app.keyDown(e.key), false);
@@ -159,7 +209,7 @@ class Program {
 
             // noinspection JSUnresolvedVariable
             canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
-            canvas.addEventListener("dblclick", () => canvas.requestPointerLock(), false);
+            document.addEventListener("dblclick", () => canvas.requestPointerLock(), false);
 
             app.initialise()
                 .then(() => app.run());

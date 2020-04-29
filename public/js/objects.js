@@ -1,6 +1,7 @@
-class StdObject extends DrawableObject {
-    constructor(model, position = Vector3.zeros, orientation = Vector3.zeros, scale = Vector3.ones) {
-        super(model, position, orientation, scale);
+class StdObject extends SceneNode {
+    constructor(mesh, position = Vector3.zeros, orientation = Vector3.zeros, scale = Vector3.ones,
+                children = []) {
+        super(mesh, position, orientation, scale, children);
 
         this.uniforms = {
             uModelMatrix: Matrix4.identity,
@@ -15,27 +16,28 @@ class StdObject extends DrawableObject {
     }
 
     update(deltaTime, uniforms) {
-        this.uniforms.uModelMatrix = this.matrix;
         super.update(deltaTime, uniforms);
+        this.uniforms.uModelMatrix = this.matrix;
     }
 }
 
 
-class SimpleObject extends DrawableObject {
-    constructor(model, position = Vector3.zeros, orientation = Vector3.zeros, scale = Vector3.ones) {
-        super(model, position, orientation, scale);
+class SimpleObject extends SceneNode {
+    constructor(mesh, position = Vector3.zeros, orientation = Vector3.zeros, scale = Vector3.ones,
+                children = []) {
+        super(mesh, position, orientation, scale, children);
 
         this.uniforms = {
             uModelMatrix: Matrix4.identity,
             uViewMatrix: Matrix4.identity,
             uProjectionMatrix: Matrix4.identity,
 
-            uColour: new Colour(1.0)
+            uColour: Colour.white
         };
     }
 
     update(deltaTime, uniforms) {
-        this.uniforms.uModelMatrix = this.matrix;
         super.update(deltaTime, uniforms);
+        this.uniforms.uModelMatrix = this.matrix;
     }
 }

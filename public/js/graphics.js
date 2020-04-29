@@ -16,7 +16,8 @@ class Texture {
         gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
-    bind() {
+    bind(shaderName) {
+        this.gl["shaders"][shaderName].setUniform1i("uSampler", this.slot);
         this.gl.activeTexture(this.gl.TEXTURE0 + this.slot);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.id);
     }
@@ -26,22 +27,23 @@ class Shader {
     constructor(gl, vertexShaderSource, fragmentShaderSource) {
         this.gl = gl;
 
+        this.name = null;
         this.id = this.createProgram(vertexShaderSource, fragmentShaderSource);
 
-        this.cache = {
+        this._layouts = {};
+
+        this._locationCache = {
             attributes: {},
-            uniforms: {}
+            uniforms: {},
         };
     }
 
-    createProgram(vertexShaderSource, fragmentShaderSource, samplerName = "uSampler") {
+    createProgram(vertexShaderSource, fragmentShaderSource) {
         const glVertexShader = Shader.loadShader(this.gl, this.gl.VERTEX_SHADER, vertexShaderSource);
         if (!glVertexShader) return -1;
 
         const glFragmentShader = Shader.loadShader(this.gl, this.gl.FRAGMENT_SHADER, fragmentShaderSource);
         if (!glFragmentShader) return -1;
-
-        this.samplerName = samplerName;
 
         const id = this.gl.createProgram();
         this.gl.attachShader(id, glVertexShader);
@@ -58,52 +60,71 @@ class Shader {
         return -1;
     }
 
+    addLayout(name, layout) {
+        this._layouts[name] = layout;
+        return this;
+    }
+
+    getLayout(name) {
+        return this._layouts[name];
+    }
+
+    hasLayout(name) {
+        return this._layouts.hasOwnProperty(name);
+    }
+
     getAttrib(name) {
-        if (!this.cache.attributes.hasOwnProperty(name))
-            this.cache.attributes[name] = this.gl.getAttribLocation(this.id, name);
-        if (this.cache.attributes[name] === -1)
+        if (!this._locationCache.attributes.hasOwnProperty(name))
+            this._locationCache.attributes[name] = this.gl.getAttribLocation(this.id, name);
+        if (this._locationCache.attributes[name] === -1)
             throw new Error(`Unknown attribute name: ${name}`);
-        return this.cache.attributes[name];
+        return this._locationCache.attributes[name];
     }
 
     getUniform(name) {
-        if (!this.cache.uniforms.hasOwnProperty(name))
-            this.cache.uniforms[name] = this.gl.getUniformLocation(this.id, name);
-        if (this.cache.uniforms[name] === null)
+        if (!this._locationCache.uniforms.hasOwnProperty(name))
+            this._locationCache.uniforms[name] = this.gl.getUniformLocation(this.id, name);
+        if (this._locationCache.uniforms[name] === null)
             throw new Error(`Unknown uniform name: ${name}`);
-        return this.cache.uniforms[name];
+        return this._locationCache.uniforms[name];
     }
 
     setUniform(name, value) {
-        const uniform = this.getUniform(name);
+        const location = this.getUniform(name);
         if (value instanceof Matrix4)
-            this.gl.uniformMatrix4fv(uniform, false, value.elements);
+            this.gl.uniformMatrix4fv(location, false, value.elements);
         else if (value instanceof Vector2)
-            this.gl.uniform2fv(uniform, value.elements);
+            this.gl.uniform2fv(location, value.elements);
         else if (value instanceof Vector3)
-            this.gl.uniform3fv(uniform, value.elements);
+            this.gl.uniform3fv(location, value.elements);
         else if (value instanceof Vector4 || value instanceof Colour)
-            this.gl.uniform4fv(uniform, value.elements);
+            this.gl.uniform4fv(location, value.elements);
+        else if (typeof value === "boolean")
+            this.gl.uniform1i(location, value ? 1 : 0);
+        else if (typeof value === "number")
+            this.gl.uniform1f(location, value);
         else
             throw new Error(`Unknown uniform type for '${name}'.`);
+        return this;
     }
 
     setUniforms(uniforms) {
         Object.entries(uniforms).forEach(([name, value]) => this.setUniform(name, value));
+        return this;
     }
 
     setUniform1i(name, value) {
         this.gl.uniform1i(this.getUniform(name), value);
+        return this;
     }
 
     bind(uniforms = undefined) {
-        this.gl.useProgram(this.id);
+        if (this.gl["boundShader"] !== this.id) {
+            this.gl.useProgram(this.id);
+            this.gl["boundShader"] = this.id;
+        }
         if (typeof uniforms === "object")
             this.setUniforms(uniforms);
-    }
-
-    setTexture(texture) {
-        this.setUniform1i(this.samplerName, texture.slot);
     }
 
     static loadShader(gl, type, source) {
@@ -155,11 +176,12 @@ class VertexBufferLayout {
         this.stride = 0;
     }
 
-    addAttribute(location, count, glType = this.gl.FLOAT, normalise = false, offset = 0) {
+    addAttribute(location, count, type = this.gl.FLOAT, normalise = false, offset = 0) {
         if (location === -1) throw new Error(`Unknown attribute location (layout element ${this.attributes.length}).`);
-        const size = this.getSizeOfType(glType);
-        this.attributes.push({location, count, type: glType, normalise, size, offset});
+        const size = this.getSizeOfType(type);
+        this.attributes.push({location, count, type, normalise, size, offset});
         this.stride += offset + (count * size);
+        return this;
     }
 
     getSizeOfType(type) {
@@ -186,7 +208,9 @@ class VertexArray {
         this.id = gl.createVertexArray();
     }
 
-    addBuffer(buffer, layout) {
+    addBuffer(buffer, shaderName, layoutName = "default") {
+        const layout = this.gl.shaders[shaderName].getLayout(layoutName);
+
         this.bind();
         buffer.bind();
         let offset = 0;
@@ -205,70 +229,32 @@ class VertexArray {
     }
 }
 
-class Model {
-    constructor(vertexArray, indexBuffer, shader, texture) {
+class Mesh {
+    constructor(gl, vertexArray, indexBuffer, shaderName, texture) {
+        this.gl = gl;
         this.vertexArray = vertexArray;
         this.indexBuffer = indexBuffer;
-        this.shader = shader;
+        this.shaderName = shaderName;
         this.texture = texture;
+    }
+
+    get shader() {
+        return this.gl["shaders"][this.shaderName];
     }
 
     bind(uniforms) {
         this.vertexArray.bind();
         this.indexBuffer.bind();
         this.shader.bind(uniforms);
-
-        if (this.texture) {
-            this.texture.bind();
-            this.shader.setTexture(this.texture);
-        }
-    }
-
-    static fromJson(gl, shader, json, texture) {
-        const jsonObject = JSON.parse(json);
-        const mesh = jsonObject["meshes"][0];
-
-        const data = [];
-        for (let i = 0; i < mesh["vertices"].length / 3; i++) {
-            const vec3Pos = 3 * i, vec2Pos = 2 * i;
-            data.push(...mesh["vertices"].slice(vec3Pos, vec3Pos + 3));
-            data.push(...mesh["normals"].slice(vec3Pos, vec3Pos + 3));
-            data.push(...mesh["tangents"].slice(vec3Pos, vec3Pos + 3));
-            data.push(...mesh["bitangents"].slice(vec3Pos, vec3Pos + 3));
-            data.push(...mesh["texturecoords"][0].slice(vec2Pos, vec2Pos + 2));
-        }
-
-        const vertexBuffer = new VertexBuffer(gl, data);
-        const va = new VertexArray(gl).addBuffer(vertexBuffer, Model.defaultLayout(shader));
-        const indexBuffer = new IndexBuffer(gl, [].concat.apply([], mesh["faces"]));
-
-        return new Model(va, indexBuffer, shader, texture);
-    }
-
-    static fromWavefront(gl, shader, mdl, texture) {
-        const mdlParts = mdl.split("\n");
-        const vertexBuffer = new VertexBuffer(gl, []);
-        const va = new VertexArray(gl).addBuffer(vertexBuffer, Model.defaultLayout(shader));
-        const indexBuffer = new IndexBuffer(gl, []);
-        return new Model(va, indexBuffer, shader, texture);
-    }
-
-    static defaultLayout(shader) {
-        const layout = new VertexBufferLayout(shader.gl);
-        layout.addAttribute(shader.getAttrib("aVertexPosition"), 3);
-        layout.addAttribute(shader.getAttrib("aVertexNormal"), 3);
-        layout.addAttribute(shader.getAttrib("aVertexTangent"), 3);
-        layout.addAttribute(shader.getAttrib("aVertexBiTangent"), 3);
-        layout.addAttribute(shader.getAttrib("aTextureCoords"), 2);
-        return layout;
+        this.texture?.bind(this.shaderName);
     }
 }
 
 class Renderer {
-    constructor(gl) {
+    constructor(gl, clearColour = Colour.black) {
         this.gl = gl;
 
-        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.clearColor(clearColour.a, clearColour.g, clearColour.b, clearColour.a);
         gl.clearDepth(1.0);
         gl.enable(gl.DEPTH_TEST);
         gl.depthFunc(gl.LEQUAL);
@@ -283,7 +269,7 @@ class Renderer {
 
     draw(object) {
         object.bind();
-        this.gl.drawElements(this.gl.TRIANGLES, object.model.indexBuffer.length, this.gl.UNSIGNED_SHORT, 0);
+        this.gl.drawElements(this.gl.TRIANGLES, object.mesh.indexBuffer.length, this.gl.UNSIGNED_SHORT, 0);
     }
 }
 
@@ -323,15 +309,25 @@ class WorldObject {
     }
 }
 
-class DrawableObject extends WorldObject {
-    constructor(model, position = Vector3.zeros, orientation = Vector3.zeros, scale = Vector3.ones) {
+class SceneNode extends WorldObject {
+    constructor(mesh, position = Vector3.zeros, orientation = Vector3.zeros, scale = Vector3.ones,
+                children = []) {
         super(position, orientation);
-        if (this.constructor === DrawableObject)
-            throw new TypeError("Abstract class 'Widget' cannot be instantiated directly.");
-        this.model = model;
+
+        this.mesh = mesh;
         this.uniforms = {};
         this._scale = new Vector3(scale);
         this.updateMatrix();
+
+        this.transform = Matrix4.identity;
+
+        this.parent = null;
+        this.children = [];
+        for (const child of children)
+            if (child instanceof SceneNode) {
+                child.parent = this;
+                this.children.push(child);
+            }
     }
 
     set scale(scaleVector) {
@@ -342,9 +338,19 @@ class DrawableObject extends WorldObject {
         return this._scale.copy;
     }
 
-    update(deltaTime, uniforms) {
+    addChild(child) {
+        child.parent = this;
+        this.children.push(child);
+    }
+
+    update(deltaTime, uniforms, transform = Matrix4.identity) {
         if (typeof uniforms === "object")
             this.uniforms = {...this.uniforms, ...uniforms};
+
+        this.transform = transform.copy.mul(this.matrix);
+
+        for (const child of this.children)
+            child.update(deltaTime, uniforms, this.transform);
     }
 
     updateMatrix() {
@@ -356,14 +362,25 @@ class DrawableObject extends WorldObject {
             .scale(this._scale);
     }
 
+    draw(renderer) {
+        renderer.draw(this);
+        for (const child of this.children)
+            child.draw(renderer);
+    }
+
     bind() {
-        this.model.bind({...this.uniforms});
+        this.mesh.bind({...this.uniforms});
     }
 }
 
 class Camera extends WorldObject {
     constructor(fov, aspectRatio, near = 0.1, far = 100) {
         super();
+
+        this._fov = fov;
+        this._aspectRatio = aspectRatio;
+        this._near = near;
+        this._far = far;
 
         this._targetPosition = this._position.copy;
         this._targetOrientation = this._orientation.copy;
@@ -372,6 +389,47 @@ class Camera extends WorldObject {
         this.projectionMatrix = Matrix4.perspective(Math.radians(fov), aspectRatio, near, far);
 
         this.updateMatrix();
+        this.updateProjectionMatrix();
+    }
+
+    get fov() {
+        return this._fov;
+    }
+
+    set fov(value) {
+        this._fov = value;
+        this.updateProjectionMatrix();
+    }
+
+    get aspectRatio() {
+        return this._aspectRatio;
+    }
+
+    set aspectRatio(value) {
+        this._aspectRatio = value;
+        this.updateProjectionMatrix();
+    }
+
+    get near() {
+        return this._near;
+    }
+
+    set near(value) {
+        this._near = value;
+        this.updateProjectionMatrix();
+    }
+
+    get far() {
+        return this._far;
+    }
+
+    set far(value) {
+        this._far = value;
+        this.updateProjectionMatrix();
+    }
+
+    updateProjectionMatrix() {
+        this.projectionMatrix.perspective(Math.radians(this._fov), this._aspectRatio, this._near, this._far);
     }
 
     update(deltaTime) {
@@ -456,16 +514,22 @@ class Camera extends WorldObject {
 class Application {
     constructor(gl) {
         this.gl = gl;
+        this.gl.shaders = {};
+        this.gl.boundShader = null;
 
         this.mousePos = Vector2.zeros;
         this.mouseChange = Vector2.zeros;
 
-        this.mouseSensitivity = 20;
-
-        this.pressedKeys = new Set();
         this.pressedButtons = new Set();
+        this.pressedKeys = new Set();
 
         this.initialised = false;
+    }
+
+    addShader(name, shader) {
+        this.gl.shaders[name] = shader;
+        shader.name = name;
+        return this;
     }
 
     mouseMove(dx, dy, x, y) {
