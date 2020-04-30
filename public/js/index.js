@@ -45,9 +45,9 @@ class CGCoursework extends Application {
 
         this.mouseSensitivity = 20;
 
-        this.camera = new Camera(90.0, gl.canvas.clientWidth / gl.canvas.clientHeight);
+        this.camera = new Camera(Math.radians(90.0), gl.canvas.clientWidth / gl.canvas.clientHeight);
         this.camera.position = new Vector3(2.923570394515991, 0.5615888833999634, 4.216072082519531);
-        this.camera.orientation = new Vector3(-44.851505279541016, 0.6907241344451904, 0.0);
+        this.camera.orientation = new Vector3(-45.0, 1.0, 0.0).map(x => Math.radians(x));
     }
 
     async loadShaders() {
@@ -92,10 +92,10 @@ class CGCoursework extends Application {
         const catMesh = await fetchMesh(this.gl, "cat", true);
 
         const cube = new StdObject(texCubeMesh, new Vector3(-5, 1.0, 0.0));
-        const cube2 = new StdObject(texCubeMesh, new Vector3(-5, 1.0, -1.0));
+        const cube2 = new StdObject(texCubeMesh, new Vector3(-5, 1.0, -2.0));
         this.lightCube = new SimpleObject(colCubeMesh, new Vector3(0.0, 4.0, 4.0), Vector3.zeros, new Vector3(0.05));
         this.suzanne = new StdObject(suzanneMesh, new Vector3(2.0, 1.0, 0.0));
-        const cat = new StdObject(catMesh, new Vector3(-4.0, 0.0, 4.0), new Vector3(90.0, 0.0, 0.0), new Vector3(0.1));
+        const cat = new StdObject(catMesh, new Vector3(-4.0, 0.0, 4.0), new Vector3(Math.radians(90.0), 0.0, 0.0), new Vector3(0.1));
 
         this.sceneGraph = new StdObject(texPlaneMesh, Vector3.zeros, Vector3.zeros, new Vector3(10.0), [cube, cube2, this.suzanne, cat]);
 
@@ -110,30 +110,30 @@ class CGCoursework extends Application {
 
     keyDown(key) {
         if (key === "r") {
-            this.camera.targetPosition = new Vector3(2.9, 0.5, 4.2);
-            this.camera.targetOrientation = new Vector3(-44.85, 0.79, 0.00);
+            this.camera.targetPosition = new Vector3(3.0, 0.5, 4.0);
+            this.camera.targetOrientation = new Vector3(-45.0, 1.0, 0.0).map(x => Math.radians(x));
         } else if (key === "c")
-            console.log(`[${this.camera.position.elements.join(", ")}], [${this.camera.orientation.elements.join(", ")}]`);
+            console.log(`[${this.camera.position.join(", ")}], [${this.camera.orientation.join(", ")}]`);
 
         super.keyDown(key);
     }
 
     update(deltaTime) {
-        this.lightCube.position = new Vector3(
+        const translate = new Vector3(
             Number(document.getElementById("xPosSlider").value) / 10.0,
             Number(document.getElementById("yPosSlider").value) / 10.0,
             Number(document.getElementById("zPosSlider").value) / 10.0
         );
-        this.lightCube.orientation = new Vector3(
+        const orientation = new Vector3(
             Number(document.getElementById("yawRotSlider").value),
             Number(document.getElementById("pitchRotSlider").value),
             Number(document.getElementById("rollRotSlider").value)
         );
         this.suzanne.scale = new Vector3(Number(document.getElementById("scaleSlider").value / 10));
 
-        this.suzanne.orientation = this.suzanne.orientation.add(new Vector3(100 * deltaTime, 0, 0));
+        this.suzanne.orientation = this.suzanne.orientation.add(new Vector3(deltaTime, 0, 0));
 
-        this.camera.turn(new Vector3(this.mouseChange.x * deltaTime * this.mouseSensitivity, this.mouseChange.y * deltaTime * this.mouseSensitivity, 0.0));
+        this.camera.turn(new Vector3(this.mouseChange.x * deltaTime * this.mouseSensitivity, this.mouseChange.y * deltaTime * this.mouseSensitivity, 0.0).map(x => Math.radians(x)));
 
         this.camera.move(new Vector2(
             Number(this.pressedKeys.has("w")) - Number(this.pressedKeys.has("s")),
@@ -158,7 +158,7 @@ class CGCoursework extends Application {
         }
 
         this.lightCube.update(deltaTime, {...commonUniforms, ...unlit});
-        this.sceneGraph.update(deltaTime, {...commonUniforms, ...lit});
+        this.sceneGraph.update(deltaTime, {...commonUniforms, ...lit}, Matrix4.translate(new Vector3(100)));
 
         super.update(deltaTime);
     }

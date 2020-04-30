@@ -17,7 +17,7 @@ class StdObject extends SceneNode {
 
     update(deltaTime, uniforms) {
         super.update(deltaTime, uniforms);
-        this.uniforms.uModelMatrix = this.matrix;
+        this.uniforms.uModelMatrix = this.transform;
     }
 }
 
@@ -38,6 +38,6 @@ class SimpleObject extends SceneNode {
 
     update(deltaTime, uniforms) {
         super.update(deltaTime, uniforms);
-        this.uniforms.uModelMatrix = this.matrix;
+        this.uniforms.uModelMatrix = this.transform;
     }
 }

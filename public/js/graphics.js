@@ -94,9 +94,9 @@ class Shader {
         if (value instanceof Matrix4)
             this.gl.uniformMatrix4fv(location, false, value.elements);
         else if (value instanceof Vector2)
-            this.gl.uniform2fv(location, value.elements);
+            this.gl.uniform2fv(location, value);
         else if (value instanceof Vector3)
-            this.gl.uniform3fv(location, value.elements);
+            this.gl.uniform3fv(location, value);
         else if (value instanceof Vector4 || value instanceof Colour)
             this.gl.uniform4fv(location, value.elements);
         else if (typeof value === "boolean")
@@ -274,9 +274,9 @@ class Renderer {
 }
 
 class WorldObject {
-    constructor(position = Vector3.zeros, orientation = Vector3.zeros) {
+    constructor(position = Vector3.zeros, orientationRad = Vector3.zeros) {
         this._position = new Vector3(position);
-        this._orientation = new Vector3(orientation).map(x => Math.radians(x));
+        this._orientation = new Vector3(orientationRad);
 
         this.matrix = Matrix4.identity;
     }
@@ -290,13 +290,13 @@ class WorldObject {
         return this._position.copy;
     }
 
-    set orientation(orientation) {
-        this._orientation = orientation.copy.map(x => Math.radians(x));
+    set orientation(orientationRad) {
+        this._orientation = orientationRad.copy;
         this.updateMatrix();
     }
 
     get orientation() {
-        return this._orientation.copy.map(x => Math.degrees(x));
+        return this._orientation.copy;
     }
 
     translate(vec) {
@@ -354,7 +354,7 @@ class SceneNode extends WorldObject {
     }
 
     updateMatrix() {
-        this.matrix = Matrix4.identity
+        this.matrix = Matrix4
             .translate(this._position)
             .rotate(this._orientation.x, new Vector3(0, 1, 0))
             .rotate(this._orientation.y, new Vector3(1, 0, 0))
@@ -374,30 +374,30 @@ class SceneNode extends WorldObject {
 }
 
 class Camera extends WorldObject {
-    constructor(fov, aspectRatio, near = 0.1, far = 100) {
-        super();
+    constructor(fovRad, aspectRatio, near = 0.1, far = 1000, position = Vector3.zeros, orientationRad = Vector3.zeros) {
+        super(position, orientationRad);
 
-        this._fov = fov;
+        this._fovRad = fovRad;
         this._aspectRatio = aspectRatio;
         this._near = near;
         this._far = far;
 
         this._targetPosition = this._position.copy;
         this._targetOrientation = this._orientation.copy;
-        this._direction = Vector3.zeros;
+        this._direction = Vector3.direction(this._orientation.x, this._orientation.y);
 
-        this.projectionMatrix = Matrix4.perspective(Math.radians(fov), aspectRatio, near, far);
+        this.projectionMatrix = Matrix4.perspective(fovRad, aspectRatio, near, far);
 
         this.updateMatrix();
         this.updateProjectionMatrix();
     }
 
     get fov() {
-        return this._fov;
+        return this._fovRad;
     }
 
     set fov(value) {
-        this._fov = value;
+        this._fovRad = value;
         this.updateProjectionMatrix();
     }
 
@@ -429,7 +429,7 @@ class Camera extends WorldObject {
     }
 
     updateProjectionMatrix() {
-        this.projectionMatrix.perspective(Math.radians(this._fov), this._aspectRatio, this._near, this._far);
+        this.projectionMatrix.perspective(this._fovRad, this._aspectRatio, this._near, this._far);
     }
 
     update(deltaTime) {
@@ -447,11 +447,7 @@ class Camera extends WorldObject {
             Math.lerp(this._position.z, this._targetPosition.z, lerpConstant)
         ];
 
-        this._direction.elements = [
-            -Math.sin(this._orientation.x) * Math.cos(this._orientation.y),
-            Math.sin(this._orientation.y),
-            -Math.cos(this._orientation.x) * Math.cos(this._orientation.y)
-        ];
+        this._direction.direction(this._orientation.x, this._orientation.y);
 
         this.updateMatrix();
     }
@@ -465,9 +461,9 @@ class Camera extends WorldObject {
         return super.position;
     }
 
-    set orientation(orientationDegrees) {
-        this.targetOrientation = orientationDegrees;
-        super.orientation = orientationDegrees;
+    set orientation(orientationRad) {
+        this.targetOrientation = orientationRad.copy;
+        super.orientation = orientationRad;
     }
 
     get orientation() {
@@ -482,13 +478,13 @@ class Camera extends WorldObject {
         return this._targetPosition;
     }
 
-    set targetOrientation(orientationDegrees) {
-        this._targetOrientation = orientationDegrees.copy.map(x => Math.radians(x));
+    set targetOrientation(orientationRad) {
+        this._targetOrientation = orientationRad.copy;
         this._targetOrientation.x *= -1;
     }
 
     get targetOrientation() {
-        return this._targetOrientation.copy.map(x => Math.degrees(x));
+        return this._targetOrientation.copy;
     }
 
     translate(vec) {
@@ -502,8 +498,8 @@ class Camera extends WorldObject {
             .add(new Vector3(-this._direction.z * vec.y, 0, this._direction.x * vec.y)); // left/right component
     }
 
-    turn(vec) {
-        this._targetOrientation.sub(new Vector3(Math.radians(vec.x), Math.radians(vec.y), 0.0));
+    turn(vecRad) {
+        this._targetOrientation.sub(new Vector3(vecRad.x, vecRad.y, 0.0));
     }
 
     updateMatrix() {

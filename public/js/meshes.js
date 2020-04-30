@@ -61,9 +61,9 @@ function parseObj(gl, obj, texture) {
                 normMap.set(normIndex, cachedIndex);
 
                 vertexBufferData.push(...[
-                    ...positions[posIndex].elements,
-                    ...normals[normIndex].elements,
-                    ...texture ? textureCoords[texIndex].elements : []
+                    ...positions[posIndex],
+                    ...normals[normIndex],
+                    ...texture ? textureCoords[texIndex] : []
                 ]);
             }
 
@@ -183,8 +183,8 @@ class ColCubeMesh extends CubeMesh {
             vertexData.push(...vertexPositions[i]);
             vertexData.push(
                 ...(faceColourData === undefined ? [1.0, 1.0, 1.0] :
-                    (faceColourData instanceof Vector3 ? faceColourData.elements :
-                        faceColourData[Math.floor(i / 6)].elements))
+                    (faceColourData instanceof Vector3 ? faceColourData :
+                        faceColourData[Math.floor(i / 6)]))
             );
         }
 

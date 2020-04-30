@@ -1,6 +1,4 @@
 const mat4 = glMatrix.mat4;
-const vec2 = glMatrix.vec2;
-const vec3 = glMatrix.vec3;
 const vec4 = glMatrix.vec4;
 
 Math.clamp = (x, min, max) => Math.min(Math.max(x, min), max);
@@ -82,7 +80,7 @@ class Matrix4 {
     }
 
     static translate(translationVector) {
-        return new Matrix4().scale(translationVector);
+        return new Matrix4().translate(translationVector);
     }
 
 
@@ -125,98 +123,168 @@ class Matrix4 {
 }
 
 
-class Vector2 {
-    constructor(x = undefined, y = undefined) {
-        this.x = this.y = 0.0;
-
-        if (typeof x === "number") {
-            this.x = x;
-            this.y = typeof y === "number" ? y : this.x;
-        } else if (x instanceof Vector2) {
-            this.x = x.x;
-            this.y = x.y;
-        } else if (x instanceof Float32Array || x instanceof Array)
-            this.elements = x;
+class Vector extends Float32Array {
+    constructor(elements, constructor) {
+        super(elements);
+        if (this.constructor === Vector) throw new Error("Cannot instantiate abstract Vector.");
+        this._constructor = constructor;
     }
 
     get copy() {
-        return new Vector2(this);
+        return new this._constructor(this);
     }
 
-    get sum() {
-        return this.x + this.y;
+    set elements(elements) {
+        return this.apply((x, i) => this[i] = elements[i]);
     }
 
     get elements() {
-        return new Float32Array([this.x, this.y]);
+        return new Float32Array(this);
     }
 
-    set elements(value) {
-        [this.x, this.y] = value.slice(0, 2);
+    get sum() {
+        let total = 0.0;
+        for (const element of this)
+            total += element;
+        return total;
+    }
+
+    get squareSum() {
+        let total = 0.0;
+        for (const element of this)
+            total += element * element;
+        return total;
     }
 
     normalise() {
-        const elements = this.elements;
-        vec2.normalize(elements, elements);
-        this.elements = elements;
+        return this.div(this.magnitude() || 1.0);
+    }
+
+    get normalised() {
+        return this.copy.normalise();
+    }
+
+    apply(f) {
+        for (let i = 0; i < this.length; i++)
+            this[i] = f(this[i], i, this);
+        return this;
     }
 
     map(f) {
-        this.x = f(this.x);
-        this.y = f(this.y);
-        return this;
+        return new this._constructor(super.map(f));
     }
 
     negate() {
-        this.x *= -1;
-        this.y *= -1;
-        return this;
+        return this.apply(x => -x);
+    }
+
+    get negated() {
+        return this.copy.negate();
     }
 
     invert() {
-        this.x = 1 / this.x;
-        this.y = 1 / this.y;
-        return this;
+        return this.apply(x => 1 / x);
+    }
+
+    get inverted() {
+        return this.copy.invert();
     }
 
     add(val) {
-        if (val instanceof Vector2) {
-            this.x += val.x;
-            this.y += val.y;
-        } else if (typeof val === "number")
-            this.add(new Vector2(val));
+        if (val.constructor === this._constructor)
+            this.apply((x, i) => x + val[i]);
+        else if (typeof val === "number")
+            this.add(new this._constructor(val));
         return this;
+    }
+
+    plus(val) {
+        return this.copy.add(val);
     }
 
     mul(val) {
-        if (val instanceof Vector2) {
-            this.x *= val.x;
-            this.y *= val.y;
-        } else if (typeof val === "number")
-            this.mul(new Vector2(val));
+        if (val.constructor === this._constructor)
+            this.apply((x, i) => x * val[i]);
+        else if (typeof val === "number")
+            this.mul(new this._constructor(val));
         return this;
+    }
+
+    multiplied(val) {
+        return this.copy.mul(val);
     }
 
     sub(val) {
-        this.add(val instanceof Vector2 ? val.copy.negate() : new Vector2(-val));
-        return this;
+        return this.add(typeof val === "number" ? new this._constructor(-val) : val.copy.negate());
+    }
+
+    subtracted(val) {
+        return this.copy.sub(val);
     }
 
     div(val) {
-        this.mul(val instanceof Vector2 ? val.copy.invert() : new Vector2(1.0 / val));
-        return this;
+        return this.mul(val instanceof Vector2 ? val.copy.invert() : new Vector2(1.0 / val));
+    }
+
+    divided(val) {
+        return this.copy.div(val);
     }
 
     dot(vec) {
-        return (this.x * vec.x) + (this.y * vec.y);
+        return this.multiplied(vec).sum();
     }
 
     magnitudeSquared() {
-        return (this.x * this.x) + (this.y * this.y);
+        return this.multiplied(this).sum();
     }
 
     magnitude() {
-        return Math.hypot(this.x, this.y);
+        return Math.hypot(...this);
+    }
+
+    zeros() {
+        return this.apply(() => 0);
+    }
+
+    ones() {
+        return this.apply(() => 1);
+    }
+}
+
+
+class Vector2 extends Vector {
+    constructor(x = undefined, y = undefined) {
+
+        let xVal = 0.0, yVal = 0.0;
+
+        if (typeof x === "number") {
+            xVal = x;
+            yVal = typeof y === "number" ? y : xVal;
+        } else if (x instanceof Vector2) {
+            xVal = x.x;
+            yVal = x.y;
+        } else if ((x instanceof Float32Array || x instanceof Array) && x.length > 1) {
+            xVal = x[0];
+            yVal = x[1];
+        }
+
+        super([xVal, yVal], Vector2, 2);
+    }
+
+    get x() {
+        return this[0];
+    }
+
+    set x(value) {
+        this[0] = value;
+    }
+
+    get y() {
+        return this[1];
+    }
+
+    set y(value) {
+        this[1] = value;
     }
 
     static get zeros() {
@@ -229,109 +297,67 @@ class Vector2 {
 }
 
 
-class Vector3 {
+class Vector3 extends Vector {
     constructor(x = undefined, y = undefined, z = undefined) {
-        this.x = this.y = this.z = 0.0;
+        let xVal = 0.0, yVal = 0.0, zVal = 0.0;
         if (typeof x === "number") {
-            this.x = x;
-            this.y = typeof y === "number" ? y : this.x;
-            this.z = typeof z === "number" ? z : this.y;
+            xVal = x;
+            yVal = typeof y === "number" ? y : xVal;
+            zVal = typeof z === "number" ? z : yVal;
         } else if (x instanceof Vector3) {
-            this.x = x.x;
-            this.y = x.y;
-            this.z = x.z;
+            xVal = x.x;
+            yVal = x.y;
+            zVal = x.z;
         } else if (x instanceof Vector2) {
-            this.x = x.x;
-            this.y = x.y;
-            this.z = typeof y == "number" ? y : 0.0;
-        } else if (x instanceof Float32Array || x instanceof Array)
-            this.elements = x;
+            xVal = x.x;
+            yVal = x.y;
+            zVal = typeof y == "number" ? y : 0.0;
+        } else if (x instanceof Float32Array || x instanceof Array) {
+            xVal = x[0];
+            yVal = x[1];
+            zVal = x[2];
+        }
+
+        super([xVal, yVal, zVal], Vector3);
     }
 
-    get copy() {
-        return new Vector3(this);
+    get x() {
+        return this[0];
     }
 
-    get sum() {
-        return this.x + this.y + this.z;
+    set x(value) {
+        this[0] = value;
     }
 
-    get elements() {
-        return new Float32Array([this.x, this.y, this.z]);
+    get y() {
+        return this[1];
     }
 
-    set elements(value) {
-        [this.x, this.y, this.z] = value.slice(0, 3);
+    set y(value) {
+        this[1] = value;
     }
 
-    normalise() {
-        const elements = this.elements;
-        vec3.normalize(elements, elements);
-        this.elements = elements;
+    get z() {
+        return this[2];
+    }
+
+    set z(value) {
+        this[2] = value;
+    }
+
+    direction(yawRad, pitchRad) {
+        const sinYaw = Math.sin(yawRad), cosYaw = Math.cos(yawRad);
+        const sinPitch = Math.sin(pitchRad), cosPitch = Math.cos(pitchRad);
+        this.elements = [
+            -sinYaw * cosPitch,
+            sinPitch,
+            -cosYaw * cosPitch
+        ];
         return this;
     }
 
-    map(f) {
-        this.x = f(this.x);
-        this.y = f(this.y);
-        this.z = f(this.z);
-        return this;
-    }
-
-    negate() {
-        this.x *= -1;
-        this.y *= -1;
-        this.z *= -1;
-        return this;
-    }
-
-    invert() {
-        this.x = 1 / this.x;
-        this.y = 1 / this.y;
-        this.z = 1 / this.z;
-        return this;
-    }
-
-    add(val) {
-        if (val instanceof Vector3) {
-            this.x += val.x;
-            this.y += val.y;
-            this.z += val.z;
-        } else if (typeof val === "number")
-            this.add(new Vector3(val));
-        return this;
-    }
-
-    mul(val) {
-        if (val instanceof Vector3) {
-            this.x *= val.x;
-            this.y *= val.y;
-            this.z *= val.z;
-        } else if (typeof val === "number")
-            this.mul(new Vector3(val));
-        return this;
-    }
-
-    sub(val) {
-        this.add(val instanceof Vector3 ? val.copy.negate() : new Vector3(-val));
-        return this;
-    }
-
-    div(val) {
-        this.mul(val instanceof Vector3 ? val.copy.invert() : new Vector3(1.0 / val));
-        return this;
-    }
-
-    dot(vec) {
-        return (this.x * vec.x) + (this.y * vec.y) + (this.z * vec.z);
-    }
-
-    magnitudeSquared() {
-        return (this.x * this.x) + (this.y * this.y) + (this.z * this.z);
-    }
-
-    magnitude() {
-        return Math.hypot(this.x, this.y, this.z);
+    static direction(yawRad, pitchRad) {
+        return Vector3.zeros.direction(yawRad, pitchRad);
     }
 
     static get zeros() {
