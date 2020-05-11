@@ -1,15 +1,15 @@
 "use strict";
 
 class Texture {
-    constructor(gl, image, slot = 0) {
+    constructor(gl, image, wrap = gl.CLAMP_TO_EDGE, slot = 0) {
         this.gl = gl;
 
         this.id = gl.createTexture();
         this.slot = slot;
 
         gl.bindTexture(gl.TEXTURE_2D, this.id);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, image);
@@ -119,9 +119,9 @@ class Shader {
     }
 
     bind(uniforms = undefined) {
-        if (this.gl["boundShader"] !== this.id) {
+        if (this.gl.boundShader !== this.id) {
             this.gl.useProgram(this.id);
-            this.gl["boundShader"] = this.id;
+            this.gl.boundShader = this.id;
         }
         if (typeof uniforms === "object")
             this.setUniforms(uniforms);
@@ -239,7 +239,7 @@ class Mesh {
     }
 
     get shader() {
-        return this.gl["shaders"][this.shaderName];
+        return this.gl.shaders[this.shaderName];
     }
 
     bind(uniforms) {
@@ -305,21 +305,18 @@ class WorldObject {
     }
 
     updateMatrix() {
-        this.matrix = Matrix4.identity;
+        return Matrix4.identity;
     }
 }
 
 class SceneNode extends WorldObject {
-    constructor(mesh, position = Vector3.zeros, orientation = Vector3.zeros, scale = Vector3.ones,
-                children = []) {
-        super(position, orientation);
+    constructor(position = Vector3.zeros, orientationRad = Vector3.zeros, scale = Vector3.ones, children = []) {
+        super(position, orientationRad);
 
-        this.mesh = mesh;
-        this.uniforms = {};
         this._scale = new Vector3(scale);
-        this.updateMatrix();
-
         this.transform = Matrix4.identity;
+
+        this.updateMatrix();
 
         this.parent = null;
         this.children = [];
@@ -330,6 +327,19 @@ class SceneNode extends WorldObject {
             }
     }
 
+    addChild(child) {
+        child.parent = this;
+        this.children.push(child);
+        return this;
+    }
+
+    update(deltaTime, uniforms, transform = Matrix4.identity) {
+        this.transform = transform.copy.mul(this.matrix);
+
+        for (const child of this.children)
+            child.update(deltaTime, uniforms, this.transform);
+    }
+
     set scale(scaleVector) {
         this._scale = new Vector3(scaleVector);
     }
@@ -338,34 +348,34 @@ class SceneNode extends WorldObject {
         return this._scale.copy;
     }
 
-    addChild(child) {
-        child.parent = this;
-        this.children.push(child);
-    }
-
-    update(deltaTime, uniforms, transform = Matrix4.identity) {
-        if (typeof uniforms === "object")
-            this.uniforms = {...this.uniforms, ...uniforms};
-
-        this.transform = transform.copy.mul(this.matrix);
-
+    draw(renderer) {
         for (const child of this.children)
-            child.update(deltaTime, uniforms, this.transform);
+            child.draw(renderer);
     }
 
     updateMatrix() {
-        this.matrix = Matrix4
-            .translate(this._position)
-            .rotate(this._orientation.x, new Vector3(0, 1, 0))
-            .rotate(this._orientation.y, new Vector3(1, 0, 0))
-            .rotate(this._orientation.z, new Vector3(0, 0, 1))
-            .scale(this._scale);
+        return this.matrix.positionOrientationScale(this._position, this._orientation, this._scale);
+    }
+}
+
+class DrawableSceneNode extends SceneNode {
+    constructor(mesh, position = Vector3.zeros, orientationRad = Vector3.zeros, scale = Vector3.ones, children = []) {
+        super(position, orientationRad, scale, children);
+
+        this.mesh = mesh;
+        this.uniforms = {};
+    }
+
+    update(deltaTime, uniforms, transform = Matrix4.identity) {
+        if (typeof uniforms === "object" && uniforms.hasOwnProperty(this.mesh.shaderName))
+            this.uniforms = {...this.uniforms, ...uniforms[this.mesh.shaderName]};
+
+        super.update(deltaTime, uniforms, transform);
     }
 
     draw(renderer) {
         renderer.draw(this);
-        for (const child of this.children)
-            child.draw(renderer);
+        super.draw(renderer);
     }
 
     bind() {
@@ -384,7 +394,7 @@ class Camera extends WorldObject {
 
         this._targetPosition = this._position.copy;
         this._targetOrientation = this._orientation.copy;
-        this._direction = Vector3.direction(this._orientation.x, this._orientation.y);
+        this._direction = Vector3.direction(-this._orientation.x, -this._orientation.y);
 
         this.projectionMatrix = Matrix4.perspective(fovRad, aspectRatio, near, far);
 
@@ -447,7 +457,7 @@ class Camera extends WorldObject {
             Math.lerp(this._position.z, this._targetPosition.z, lerpConstant)
         ];
 
-        this._direction.direction(this._orientation.x, this._orientation.y);
+        this._direction.direction(-this._orientation.x, -this._orientation.y);
 
         this.updateMatrix();
     }
@@ -480,7 +490,6 @@ class Camera extends WorldObject {
 
     set targetOrientation(orientationRad) {
         this._targetOrientation = orientationRad.copy;
-        this._targetOrientation.x *= -1;
     }
 
     get targetOrientation() {
@@ -499,11 +508,11 @@ class Camera extends WorldObject {
     }
 
     turn(vecRad) {
-        this._targetOrientation.sub(new Vector3(vecRad.x, vecRad.y, 0.0));
+        this._targetOrientation.add(new Vector3(vecRad.x, vecRad.y, 0.0));
     }
 
     updateMatrix() {
-        this.matrix.lookAt(this._position, this._position.copy.add(this._direction), new Vector3(0, 1, 0));
+        return this.matrix.lookAt(this._position, this._position.copy.add(this._direction), new Vector3(0, 1, 0));
     }
 }
 
@@ -575,7 +584,7 @@ class Application {
         this.mouseChange = Vector2.zeros;
     }
 
-    draw() {
+    draw(deltaTime) {
         if (!this.initialised) throw Error("Not initialised.");
     }
 
@@ -585,8 +594,10 @@ class Application {
 
         function mainloop(currentTime) {
             currentTime /= 1000.0;
-            app.update(currentTime - previousTime);
-            app.draw();
+            const deltaTime = currentTime - previousTime;
+
+            app.update(deltaTime);
+            app.draw(deltaTime);
 
             previousTime = currentTime;
             requestAnimationFrame(mainloop);

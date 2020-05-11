@@ -1,61 +1,99 @@
-const mat4 = glMatrix.mat4;
-const vec4 = glMatrix.vec4;
-
 Math.clamp = (x, min, max) => Math.min(Math.max(x, min), max);
 Math.radians = (degrees) => Math.PI * degrees / 180.0;
 Math.degrees = (radians) => 180.0 * radians / Math.PI;
 Math.lerp = (a, b, v) => (a * (1 - v)) + (b * v);
 
 
-class Matrix4 {
-    constructor(value = undefined) {
-        this.elements = new Float32Array(16);
+class FrameCounter {
+    constructor(bufferSize = 50) {
+        this._bufferSize = bufferSize;
+        this._frameTimeBuffer = new Float32Array(bufferSize);
+        this.totalFrames = 0;
+        this.averageFrameTime = 0.0;
+    }
 
-        if (value instanceof Matrix4)
-            this.elements = new Float32Array(value.elements);
+    get averageFrameRate() {
+        return this.averageFrameTime ? 1.0 / this.averageFrameTime : 0.0;
+    }
+
+    tick(deltaTime) {
+        this._frameTimeBuffer[this.totalFrames++ % this._bufferSize] = deltaTime;
+
+        if (this.totalFrames > this._frameTimeBuffer.length) {
+            this.averageFrameTime = 0.0;
+            for (const frameTime of this._frameTimeBuffer)
+                this.averageFrameTime += frameTime;
+            this.averageFrameTime /= this._frameTimeBuffer.length;
+        }
+    }
+}
+
+
+class Matrix4 extends Float32Array {
+    constructor(value) {
+        let elements;
+        if (value instanceof Matrix4) elements = new Float32Array(value.elements);
         else if (value instanceof Float32Array || value instanceof Array) {
-            for (let i = 0; i < Math.max(16, value.length); i++)
-                this.elements[i] = value[i];
-        } else this.elements = mat4.create();
+            elements = new Float32Array(16);
+            for (let i = 0; i < Math.min(16, value.length); i++) elements[i] = value[i];
+        } else elements = glMatrix.mat4.create();
+
+        super(elements);
     }
 
     get copy() {
         return new Matrix4(this);
     }
 
+    get elements() {
+        return new Float32Array(this);
+    }
+
+    set elements(values) {
+        for (let i = 0; i < Math.min(16, this.elements.length); i++) this[i] = values[i];
+    }
+
     transpose() {
-        mat4.transpose(this.elements, this.elements);
+        glMatrix.mat4.transpose(this, this);
         return this;
     }
 
     invert() {
-        mat4.invert(this.elements, this.elements);
-        return this;
+        return glMatrix.mat4.invert(this, this);
     }
 
     multiply(rhs) {
-        mat4.mul(this.elements, this.elements, rhs.elements);
-        return this;
+        if (rhs instanceof Matrix4)
+            return glMatrix.mat4.mul(this, this, rhs.elements);
+        else if (rhs instanceof Vector3)
+            return glMatrix.vec3.transformMat4(new Vector3(), rhs, this);
+        else if (rhs instanceof Vector3)
+            return glMatrix.vec4.transformMat4(new Vector4(), rhs, this);
     }
 
     mul(rhs) {
-        this.multiply(rhs);
-        return this;
+        return this.multiply(rhs);
+    }
+
+    multiplied(rhs) {
+        return this.copy.multiply(rhs);
     }
 
     multiplyLeft(lhs) {
-        mat4.mul(this.elements, lhs.elements, this.elements);
-        return this;
+        return glMatrix.mat4.mul(this, lhs, this);
     }
 
     mull(lhs) {
-        this.multiplyLeft(lhs);
-        return this;
+        return this.multiplyLeft(lhs);
+    }
+
+    multipliedLeft(lhs) {
+        return this.copy.multiplyLeft(lhs);
     }
 
     scale(scaleVector, concat = true) {
         if (!concat) this.identity();
-        mat4.scale(this.elements, this.elements, scaleVector.elements);
+        glMatrix.mat4.scale(this, this, scaleVector);
         return this;
     }
 
@@ -65,7 +103,7 @@ class Matrix4 {
 
     rotate(angleRad, axisVector, concat = true) {
         if (!concat) this.identity();
-        mat4.rotate(this.elements, this.elements, angleRad, axisVector.elements);
+        glMatrix.mat4.rotate(this, this, angleRad, axisVector.elements);
         return this;
     }
 
@@ -75,7 +113,7 @@ class Matrix4 {
 
     translate(translationVector, concat = true) {
         if (!concat) this.identity();
-        mat4.translate(this.elements, this.elements, translationVector.elements);
+        glMatrix.mat4.translate(this, this, translationVector);
         return this;
     }
 
@@ -83,9 +121,8 @@ class Matrix4 {
         return new Matrix4().translate(translationVector);
     }
 
-
     identity() {
-        mat4.identity(this.elements);
+        glMatrix.mat4.identity(this);
         return this;
     }
 
@@ -94,7 +131,7 @@ class Matrix4 {
     }
 
     perspective(fov, aspectRatio, near, far) {
-        mat4.perspective(this.elements, fov, aspectRatio, near, far);
+        glMatrix.mat4.perspective(this, fov, aspectRatio, near, far);
         return this;
     }
 
@@ -103,7 +140,7 @@ class Matrix4 {
     }
 
     lookAt(eyeVector, centerVector, upVector) {
-        mat4.lookAt(this.elements, eyeVector.elements, centerVector.elements, upVector.elements);
+        glMatrix.mat4.lookAt(this, eyeVector, centerVector, upVector);
         return this;
     }
 
@@ -113,12 +150,26 @@ class Matrix4 {
 
     targetTo(eyeVector, centerVector, upVector, concat = true) {
         if (!concat) this.identity();
-        mat4.lookAt(this.elements, eyeVector.elements, centerVector.elements, upVector.elements);
+        glMatrix.mat4.lookAt(this, eyeVector, centerVector, upVector);
         return this;
     }
 
     static createTargetTo(eyeVector, centerVector, upVector) {
         return new Matrix4().targetTo(eyeVector, centerVector, upVector);
+    }
+
+    positionOrientationScale(position = Vector3.zeros, orientation = Vector3.zeros, scale = Vector3.ones, concat = false) {
+        if (!concat) this.identity();
+        this.translate(position)
+            .rotate(orientation.x, new Vector4(0, 1, 0))
+            .rotate(orientation.y, new Vector4(1, 0, 0))
+            .rotate(orientation.z, new Vector4(0, 0, 1))
+            .scale(scale);
+        return this;
+    }
+
+    static positionOrientationScale(position = Vector3.zeros, orientation = Vector3.zeros, scale = Vector3.ones) {
+        return new Matrix4().positionOrientationScale(position, orientation, scale, true);
     }
 }
 
@@ -223,7 +274,7 @@ class Vector extends Float32Array {
     }
 
     div(val) {
-        return this.mul(val instanceof Vector2 ? val.copy.invert() : new Vector2(1.0 / val));
+        return this.mul(typeof val === "number" ? new this._constructor(1.0 / val) : val.copy.invert());
     }
 
     divided(val) {
@@ -420,7 +471,7 @@ class Vector4 {
 
     normalise() {
         const elements = this.elements;
-        vec4.normalize(elements, elements);
+        glMatrix.vec4.normalize(elements, elements);
         this.elements = elements;
     }
 

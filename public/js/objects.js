@@ -1,4 +1,4 @@
-class StdObject extends SceneNode {
+class LitSceneNode extends DrawableSceneNode {
     constructor(mesh, position = Vector3.zeros, orientation = Vector3.zeros, scale = Vector3.ones,
                 children = []) {
         super(mesh, position, orientation, scale, children);
@@ -15,14 +15,14 @@ class StdObject extends SceneNode {
         };
     }
 
-    update(deltaTime, uniforms) {
-        super.update(deltaTime, uniforms);
+    update(deltaTime, uniforms, transform = Matrix4.identity) {
+        super.update(deltaTime, uniforms, transform);
         this.uniforms.uModelMatrix = this.transform;
     }
 }
 
 
-class SimpleObject extends SceneNode {
+class UnlitSceneNode extends DrawableSceneNode {
     constructor(mesh, position = Vector3.zeros, orientation = Vector3.zeros, scale = Vector3.ones,
                 children = []) {
         super(mesh, position, orientation, scale, children);
@@ -36,8 +36,8 @@ class SimpleObject extends SceneNode {
         };
     }
 
-    update(deltaTime, uniforms) {
-        super.update(deltaTime, uniforms);
+    update(deltaTime, uniforms, transform = Matrix4.identity) {
+        super.update(deltaTime, uniforms, transform);
         this.uniforms.uModelMatrix = this.transform;
     }
 }

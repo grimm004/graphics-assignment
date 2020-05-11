@@ -1,5 +1,11 @@
-function parseObj(gl, obj, texture) {
+function parseObj(gl, obj, texture, colour = Colour.white, shader = "") {
     const objParts = obj.split("\n");
+
+    if (shader === "")
+        shader = texture ? "texLit" : "colLit";
+
+    const usesTexture = shader === "tex" || shader === "texLit";
+    const usesNormals = shader === "colLit" || shader === "texLit";
 
     const positions = [];
     const textureCoords = [];
@@ -9,8 +15,8 @@ function parseObj(gl, obj, texture) {
     for (const objPart of objParts) {
         const [type, ...parameters] = objPart.trim().split(" ");
         if (type === "v") positions.push(new Vector3(parameters.map(xStr => Number(xStr))));
-        else if (type === "vt") textureCoords.push(new Vector2(parameters.map(xStr => Number(xStr))));
-        else if (type === "vn") normals.push(new Vector3(parameters.map(xStr => Number(xStr))));
+        else if (type === "vt" && usesTexture) textureCoords.push(new Vector2(parameters.map(xStr => Number(xStr))));
+        else if (type === "vn" && usesNormals) normals.push(new Vector3(parameters.map(xStr => Number(xStr))));
         else if (type === "f") {
             if (parameters.length !== 3)
                 throw Error("Wavefront .obj needs to be triangulated.");
@@ -20,14 +26,14 @@ function parseObj(gl, obj, texture) {
                 let posIndex = null, texIndex = null, normIndex = null;
                 if (paramParts.length > 0)
                     posIndex = Number(paramParts[0]) - 1;
-                if (paramParts.length > 1 && paramParts[1] !== "")
+                if (paramParts.length > 1 && paramParts[1] !== "" && usesTexture)
                     texIndex = Number(paramParts[1]) - 1;
-                if (paramParts.length > 2)
+                if (paramParts.length > 2 && usesNormals)
                     normIndex = Number(paramParts[2]) - 1;
                 vertices.push([posIndex, texIndex, normIndex]);
 
-                if (posIndex === null || texIndex === null || normIndex === null)
-                    console.log(`Null attribute: ${parameter}: ${posIndex}, ${texIndex}, ${normIndex}`);
+                // if (posIndex === null || texIndex === null || normIndex === null)
+                //     console.log(`Null attribute: ${parameter}: ${posIndex}, ${texIndex}, ${normIndex}`);
             }
 
             faces.push(vertices);
@@ -37,6 +43,7 @@ function parseObj(gl, obj, texture) {
     const positionMap = new Map();
     const vertexBufferData = [];
     const indexBufferData = [];
+    let index = 0;
     for (const face of faces)
         for (const vertex of face) {
             const [posIndex, texIndex, normIndex] = vertex;
@@ -57,13 +64,13 @@ function parseObj(gl, obj, texture) {
 
             let cachedIndex = normMap.get(normIndex);
             if (cachedIndex === undefined) {
-                cachedIndex = vertexBufferData.length / 8;
+                cachedIndex = index++;
                 normMap.set(normIndex, cachedIndex);
 
                 vertexBufferData.push(...[
                     ...positions[posIndex],
-                    ...normals[normIndex],
-                    ...texture ? textureCoords[texIndex] : []
+                    ...usesNormals ? normals[normIndex] : [],
+                    ...usesTexture ? textureCoords[texIndex] : colour.rgb
                 ]);
             }
 
@@ -71,9 +78,9 @@ function parseObj(gl, obj, texture) {
         }
 
     const vertexBuffer = new VertexBuffer(gl, vertexBufferData);
-    const va = new VertexArray(gl).addBuffer(vertexBuffer, texture ? "texLit" : "colLit");
+    const va = new VertexArray(gl).addBuffer(vertexBuffer, shader);
     const indexBuffer = new IndexBuffer(gl, indexBufferData);
-    return new Mesh(gl, va, indexBuffer, texture ? "texLit" : "colLit", texture);
+    return new Mesh(gl, va, indexBuffer, shader, texture);
 }
 
 class CubeMesh extends Mesh {
@@ -93,43 +100,44 @@ class CubeMesh extends Mesh {
 
 
 class TexCubeMesh extends CubeMesh {
-    constructor(gl, texture) {
+    constructor(gl, texture, size = Vector3.ones, textureSize = Vector2.ones) {
+        size.div(2);
         const vertexBuffer = new VertexBuffer(gl, [
             // Front face
-            -1.0, -1.0,  1.0,   0.0,  0.0,  1.0,  0.0, 0.0,
-             1.0, -1.0,  1.0,   0.0,  0.0,  1.0,  1.0, 0.0,
-             1.0,  1.0,  1.0,   0.0,  0.0,  1.0,  1.0, 1.0,
-            -1.0,  1.0,  1.0,   0.0,  0.0,  1.0,  0.0, 1.0,
+            -size.x, -size.y,  size.z,   0.0,  0.0,  1.0,  0.0,           0.0,
+             size.x, -size.y,  size.z,   0.0,  0.0,  1.0,  textureSize.x, 0.0,
+             size.x,  size.y,  size.z,   0.0,  0.0,  1.0,  textureSize.x, textureSize.y,
+            -size.x,  size.y,  size.z,   0.0,  0.0,  1.0,  0.0,           textureSize.y,
 
             // Back face
-            -1.0, -1.0, -1.0,   0.0,  0.0, -1.0,  0.0, 0.0,
-            -1.0,  1.0, -1.0,   0.0,  0.0, -1.0,  1.0, 0.0,
-             1.0,  1.0, -1.0,   0.0,  0.0, -1.0,  1.0, 1.0,
-             1.0, -1.0, -1.0,   0.0,  0.0, -1.0,  0.0, 1.0,
+            -size.x, -size.y, -size.z,   0.0,  0.0, -1.0,  0.0,           0.0,
+            -size.x,  size.y, -size.z,   0.0,  0.0, -1.0,  textureSize.x, 0.0,
+             size.x,  size.y, -size.z,   0.0,  0.0, -1.0,  textureSize.x, textureSize.y,
+             size.x, -size.y, -size.z,   0.0,  0.0, -1.0,  0.0,           textureSize.y,
 
             // Top face
-            -1.0,  1.0, -1.0,   0.0,  1.0,  0.0,  0.0, 0.0,
-            -1.0,  1.0,  1.0,   0.0,  1.0,  0.0,  1.0, 0.0,
-             1.0,  1.0,  1.0,   0.0,  1.0,  0.0,  1.0, 1.0,
-             1.0,  1.0, -1.0,   0.0,  1.0,  0.0,  0.0, 1.0,
+            -size.x,  size.y, -size.z,   0.0,  1.0,  0.0,  0.0,           0.0,
+            -size.x,  size.y,  size.z,   0.0,  1.0,  0.0,  textureSize.x, 0.0,
+             size.x,  size.y,  size.z,   0.0,  1.0,  0.0,  textureSize.x, textureSize.y,
+             size.x,  size.y, -size.z,   0.0,  1.0,  0.0,  0.0,           textureSize.y,
 
             // Bottom face
-            -1.0, -1.0, -1.0,   0.0, -1.0,  0.0,  0.0, 0.0,
-             1.0, -1.0, -1.0,   0.0, -1.0,  0.0,  1.0, 0.0,
-             1.0, -1.0,  1.0,   0.0, -1.0,  0.0,  1.0, 1.0,
-            -1.0, -1.0,  1.0,   0.0, -1.0,  0.0,  0.0, 1.0,
+            -size.x, -size.y, -size.z,   0.0, -1.0,  0.0,  0.0,           0.0,
+             size.x, -size.y, -size.z,   0.0, -1.0,  0.0,  textureSize.x, 0.0,
+             size.x, -size.y,  size.z,   0.0, -1.0,  0.0,  textureSize.x, textureSize.y,
+            -size.x, -size.y,  size.z,   0.0, -1.0,  0.0,  0.0,           textureSize.y,
 
             // Right face
-             1.0, -1.0, -1.0,   1.0,  0.0,  0.0,  0.0, 0.0,
-             1.0,  1.0, -1.0,   1.0,  0.0,  0.0,  1.0, 0.0,
-             1.0,  1.0,  1.0,   1.0,  0.0,  0.0,  1.0, 1.0,
-             1.0, -1.0,  1.0,   1.0,  0.0,  0.0,  0.0, 1.0,
+             size.x, -size.y, -size.z,   1.0,  0.0,  0.0,  0.0,           0.0,
+             size.x,  size.y, -size.z,   1.0,  0.0,  0.0,  textureSize.x, 0.0,
+             size.x,  size.y,  size.z,   1.0,  0.0,  0.0,  textureSize.x, textureSize.y,
+             size.x, -size.y,  size.z,   1.0,  0.0,  0.0,  0.0,           textureSize.y,
 
             // Left face
-            -1.0, -1.0, -1.0,   1.0,  0.0,  0.0,  0.0, 0.0,
-            -1.0, -1.0,  1.0,   1.0,  0.0,  0.0,  1.0, 0.0,
-            -1.0,  1.0,  1.0,   1.0,  0.0,  0.0,  1.0, 1.0,
-            -1.0,  1.0, -1.0,   1.0,  0.0,  0.0,  0.0, 1.0,
+            -size.x, -size.y, -size.z,   1.0,  0.0,  0.0,  0.0,           0.0,
+            -size.x, -size.y,  size.z,   1.0,  0.0,  0.0,  textureSize.x, 0.0,
+            -size.x,  size.y,  size.z,   1.0,  0.0,  0.0,  textureSize.x, textureSize.y,
+            -size.x,  size.y, -size.z,   1.0,  0.0,  0.0,  0.0,           textureSize.y,
         ]);
 
         const vertexArray = new VertexArray(gl).addBuffer(vertexBuffer, "texLit");
@@ -182,9 +190,9 @@ class ColCubeMesh extends CubeMesh {
         for (let i = 0; i < vertexPositions.length; i++) {
             vertexData.push(...vertexPositions[i]);
             vertexData.push(
-                ...(faceColourData === undefined ? [1.0, 1.0, 1.0] :
-                    (faceColourData instanceof Vector3 ? faceColourData :
-                        faceColourData[Math.floor(i / 6)]))
+                ...(faceColourData === undefined ? Colour.white.rgb :
+                    (faceColourData instanceof Colour ? faceColourData.rgb :
+                        faceColourData[Math.floor(i / 6)].rgb))
             );
         }
 
@@ -197,12 +205,12 @@ class ColCubeMesh extends CubeMesh {
 
 
 class TexPlaneMesh extends Mesh {
-    constructor(gl, shader, texture) {
+    constructor(gl, texture, size = Vector2.ones, normalVector = new Vector3(0.0, 1.0, 0.0)) {
         const vertexBuffer = new VertexBuffer(gl, [
-            -1.0,  0.0, -1.0,   0.0,  1.0,  0.0,  0.0, 0.0,
-             1.0,  0.0, -1.0,   0.0,  1.0,  0.0,  1.0, 0.0,
-             1.0,  0.0,  1.0,   0.0,  1.0,  0.0,  1.0, 1.0,
-            -1.0,  0.0,  1.0,   0.0,  1.0,  0.0,  0.0, 1.0,
+            -size.x,  0.0, -size.y,   normalVector.x, normalVector.y, normalVector.z,  0.0,    0.0,
+             size.x,  0.0, -size.y,   normalVector.x, normalVector.y, normalVector.z,  size.x, 0.0,
+             size.x,  0.0,  size.y,   normalVector.x, normalVector.y, normalVector.z,  size.x, size.y,
+            -size.x,  0.0,  size.y,   normalVector.x, normalVector.y, normalVector.z,  0.0,    size.y,
         ]);
 
         const vertexArray = new VertexArray(gl).addBuffer(vertexBuffer,  "texLit");
@@ -210,6 +218,6 @@ class TexPlaneMesh extends Mesh {
         const indexBuffer = new IndexBuffer(gl, [
             0, 1, 2, 0, 2, 3
         ]);
-        super(gl, vertexArray, indexBuffer, shader, texture);
+        super(gl, vertexArray, indexBuffer, "texLit", texture);
     }
 }
